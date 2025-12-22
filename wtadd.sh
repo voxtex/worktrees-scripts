@@ -146,12 +146,39 @@ function _worktree {
     else
         copy_source=./$(git rev-parse --abbrev-ref HEAD)
     fi
+
+    # Defaults: .envrc, .env, .env.local, .tool-versions, .mise.toml
+    # We escape them for regex usage.
+    regex_files="\.envrc|\.env|\.env\.local|\.tool-versions|\.mise\.toml"
+
+    config_file="$parent_dir/.worktrees-scripts"
+    if [ -f "$config_file" ]; then
+         # Extract line starting with files_to_copy=
+         config_line=$(grep "^files_to_copy=" "$config_file" | head -n 1)
+         if [ -n "$config_line" ]; then
+             # Remove key
+             user_files_str="${config_line#files_to_copy=}"
+
+             # Split by space using read -a and temporary IFS
+             OLD_IFS="$IFS"
+             IFS=' ' read -r -a user_files_array <<< "$user_files_str"
+             IFS="$OLD_IFS"
+
+             # Loop and escape
+             for f in "${user_files_array[@]}"; do
+                 # Escape dots
+                 escaped_f="${f//./\\.}"
+                 regex_files="$regex_files|$escaped_f"
+             done
+         fi
+    fi
+
     if [ "$platform" = "Darwin" ]; then
         files_to_copy=( $(find -E $copy_source -not -path '*node_modules*' -and \
-                -iregex '.*\/\.(envrc|env|env.local|tool-versions|mise.toml)' ) )
+                -iregex ".*\/($regex_files)" ) )
     else
         files_to_copy=( $(find $copy_source -not -path '*node_modules*' -and \
-                -regextype posix-extended -iregex '.*\/\.(envrc|env|env.local|tool-versions|mise.toml)' ) )
+                -regextype posix-extended -iregex ".*\/($regex_files)" ) )
     fi
 
     for f in "${files_to_copy[@]}"; do
