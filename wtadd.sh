@@ -56,6 +56,12 @@ function warn {
 function cp_cow {    
     if ! /bin/cp -Rc "$1" "$2" 2>/dev/null; then
         if ! /bin/cp -R --reflink "$1" "$2" 2>/dev/null; then
+            # if reflink failed, it may have created the directory, which will
+            # cause the next copy to nest the directory inside the one created
+            # by reflink. So we need to remove it if it exists
+            if [ -d "$2" ]; then
+                rm -rf "$2"
+            fi
             if ! /bin/cp -R "$1" "$2" 2>/dev/null; then
                 warn "Unable to copy file $1 to $2 - folder may not exist"
             fi
@@ -116,10 +122,17 @@ function _worktree {
 
     # Find untracked files that we want to copy to the new worktree
 
+    # Determine where we are copying from
+    if $is_worktree; then
+        copy_source="."
+    else
+        copy_source=./$(git rev-parse --abbrev-ref HEAD)
+    fi
+
     # packages in node_modules packages can have sub-node-modules packages, and
     # we don't want to copy them; only copy the root node_modules directory
-    if [ -d "node_modules" ]; then
-      cp_cow node_modules "$parent_dir/$dirname"/node_modules
+    if [ -d "$copy_source/node_modules" ]; then
+      cp_cow "$copy_source/node_modules" "$parent_dir/$dirname"/node_modules
     fi
 
     # this will fail for any files with \n in their names. don't do that.
@@ -141,11 +154,7 @@ function _worktree {
     #
     # shellcheck disable=SC2207
     platform=`uname`
-    if $is_worktree; then
-        copy_source="."
-    else
-        copy_source=./$(git rev-parse --abbrev-ref HEAD)
-    fi
+
     if [ "$platform" = "Darwin" ]; then
         files_to_copy=( $(find -E $copy_source -not -path '*node_modules*' -and \
                 -iregex '.*\/\.(envrc|env|env.local|tool-versions|mise.toml)' ) )
